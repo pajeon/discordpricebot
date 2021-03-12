@@ -145,7 +145,7 @@ class PriceBot(commands.Bot):
             pass
 
     def generate_nickname(self):
-        return f"{self.token['icon']} ${self.current_price:.4f} ({round(self.bnb_amount / self.token_amount, 4):.4f})"
+        return f"{self.token['icon']} {round(self.bnb_amount / self.token_amount, 2):.2f} (${self.current_price:.2f})"
 
     async def get_lp_value(self):
         self.total_supply = self.contracts['lp'].functions.totalSupply().call()
