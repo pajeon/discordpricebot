@@ -5,3 +5,4 @@ contracts
 pricebot/plugin/
 __pycache__/
 .idea/
+venv
