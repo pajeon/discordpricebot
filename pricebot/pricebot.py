@@ -10,6 +10,7 @@ from web3 import Web3
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+
 def fetch_abi(contract):
     if not os.path.exists('contracts'):
         os.mkdir('./contracts')
@@ -21,7 +22,8 @@ def fetch_abi(contract):
     else:
         # TODO: Error handling
         url = 'https://api.bscscan.com/api?module=contract&action=getabi&address=' + contract
-        abi_response = urlopen(Request(url, headers={'User-Agent': 'Mozilla'})).read().decode('utf8')
+        abi_response = urlopen(
+            Request(url, headers={'User-Agent': 'Mozilla'})).read().decode('utf8')
         abi = json.loads(abi_response)['result']
 
         with open(filename, 'w') as abi_file:
@@ -29,9 +31,11 @@ def fetch_abi(contract):
 
     return json.loads(abi)
 
+
 def list_cogs(directory):
     basedir = (os.path.basename(os.path.dirname(__file__)))
     return (f"{basedir}.{directory}.{f.rstrip('.py')}" for f in os.listdir(basedir + '/' + directory) if f.endswith('.py'))
+
 
 class PriceBot(commands.Bot):
     contracts = {}
@@ -46,7 +50,7 @@ class PriceBot(commands.Bot):
 
     # Static BSC contract addresses
     address = {
-        'bnb' : '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
+        'bnb': '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
         'busd': '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56'
     }
 
@@ -60,7 +64,8 @@ class PriceBot(commands.Bot):
         self.amm = config['amm'][token['from']]
 
         if not config['amm'].get(token['from']):
-            raise Exception(f"{token['name']}'s AMM {token['from']} does not exist!")
+            raise Exception(
+                f"{token['name']}'s AMM {token['from']} does not exist!")
 
         if node := config.get('bsc_node'):
             bsc_node = urlparse(node)
@@ -73,15 +78,20 @@ class PriceBot(commands.Bot):
         else:
             raise Exception("Required setting 'bsc_node' not configured!")
 
-        self.contracts['bnb'] = self.web3.eth.contract(address=self.address['bnb'], abi=self.token['abi'])
-        self.contracts['busd'] = self.web3.eth.contract(address=self.address['busd'], abi=self.token['abi'])
-        self.contracts['token'] = self.web3.eth.contract(address=self.token['contract'], abi=self.token['abi'])
-        self.contracts['lp'] = self.web3.eth.contract(address=self.token['lp'], abi=fetch_abi(self.token['lp']))
+        self.contracts['bnb'] = self.web3.eth.contract(
+            address=self.address['bnb'], abi=self.token['abi'])
+        self.contracts['busd'] = self.web3.eth.contract(
+            address=self.address['busd'], abi=self.token['abi'])
+        self.contracts['token'] = self.web3.eth.contract(
+            address=self.token['contract'], abi=self.token['abi'])
+        self.contracts['lp'] = self.web3.eth.contract(
+            address=self.token['lp'], abi=fetch_abi(self.token['lp']))
 
         if not self.token.get('decimals'):
             self.token['decimals'] = self.contracts['token'].functions.decimals().call()
 
-        self.help_command = commands.DefaultHelpCommand(command_attrs={"hidden": True})
+        self.help_command = commands.DefaultHelpCommand(
+            command_attrs={"hidden": True})
 
         self.dbengine = create_engine('sqlite:///pricebot.db', echo=True)
         session = sessionmaker(bind=self.dbengine)
@@ -108,16 +118,20 @@ class PriceBot(commands.Bot):
         return f"{value}{self.token['name']}"
 
     def get_bnb_price(self, lp):
-        bnb_amount = Decimal(self.contracts['bnb'].functions.balanceOf(lp).call())
-        busd_amount = Decimal(self.contracts['busd'].functions.balanceOf(lp).call())
+        bnb_amount = Decimal(
+            self.contracts['bnb'].functions.balanceOf(lp).call())
+        busd_amount = Decimal(
+            self.contracts['busd'].functions.balanceOf(lp).call())
 
         self.bnb_price = Decimal(busd_amount) / Decimal(bnb_amount)
 
         return self.bnb_price
 
     def get_price(self, token_contract, native_lp, bnb_lp):
-        self.bnb_amount = Decimal(self.contracts['bnb'].functions.balanceOf(native_lp).call())
-        self.token_amount = Decimal(token_contract.functions.balanceOf(native_lp).call()) * Decimal(10 ** (18 - self.token["decimals"]))  # Normalize token_decimals
+        self.bnb_amount = Decimal(
+            self.contracts['bnb'].functions.balanceOf(native_lp).call())
+        self.token_amount = Decimal(token_contract.functions.balanceOf(native_lp).call(
+        )) * Decimal(10 ** (18 - self.token["decimals"]))  # Normalize token_decimals
 
         bnb_price = self.get_bnb_price(bnb_lp)
 
@@ -137,7 +151,8 @@ class PriceBot(commands.Bot):
 
         try:
             total_supply = self.contracts['lp'].functions.totalSupply().call()
-            values = [Decimal(self.token_amount / total_supply), Decimal(self.bnb_amount / total_supply)]
+            values = [Decimal(self.token_amount / total_supply),
+                      Decimal(self.bnb_amount / total_supply)]
             lp_price = self.current_price * values[0] * 2
 
             return f"LP ≈${round(lp_price, 2)} | {round(values[0], 4)} {self.token['icon']} + {round(values[1], 4)} BNB"
@@ -145,7 +160,7 @@ class PriceBot(commands.Bot):
             pass
 
     def generate_nickname(self):
-        return f"{self.token['icon']} {round(self.bnb_amount / self.token_amount, 2):.2f} (${self.current_price:.2f})"
+        return f"{round(self.bnb_amount / self.token_amount, 2):.2f} BNB (${self.current_price:.2f})"
 
     async def get_lp_value(self):
         self.total_supply = self.contracts['lp'].functions.totalSupply().call()
@@ -155,7 +170,8 @@ class PriceBot(commands.Bot):
         await guild.me.edit(nick=self.nickname)
 
     async def check_restrictions(self, ctx):
-        server_restriction = self.config.get('restrict_to', {}).get(ctx.guild.id)
+        server_restriction = self.config.get(
+            'restrict_to', {}).get(ctx.guild.id)
         if server_restriction and not await self.is_owner(ctx.author):
             if ctx.channel.id not in server_restriction:
                 if ctx.channel.permissions_for(ctx.guild.me).manage_messages:
@@ -169,7 +185,8 @@ class PriceBot(commands.Bot):
         for guild_id, channels in restrictions.items():
             for i, channel in enumerate(channels):
                 if not self.parse_int(channel):
-                    channels[i] = discord.utils.get(all_channels, guild__id=guild_id, name=channel)
+                    channels[i] = discord.utils.get(
+                        all_channels, guild__id=guild_id, name=channel)
                     if not channels[i]:
                         raise Exception('No channel named channel!')
 
