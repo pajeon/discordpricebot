@@ -15,10 +15,10 @@ class Boardroom(commands.Cog, command_attrs=dict(hidden=True)):
     async def on_ready(self):
         await self.update()
 
-        self.bot.loop = tasks.loop(
+        self.bot.epoch_loop = tasks.loop(
             seconds=self.bot.config['refresh_rate'])(self.update)
-        self.bot.loop.add_exception_type(discord.errors.HTTPException)
-        self.bot.loop.start()
+        self.bot.epoch_loop.add_exception_type(discord.errors.HTTPException)
+        self.bot.epoch_loop.start()
 
     async def update(self):
         self.bot.get_epoch()
