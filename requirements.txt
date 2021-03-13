@@ -2,5 +2,6 @@ web3==5.15.0
 discord.py==1.6.0
 discord==1.0.1
 PyYAML==5.4.1
+python-dateutil==2.8.1
 SQLAlchemy~=1.4.0b1
 SQLAlchemy-Utils==0.36.8

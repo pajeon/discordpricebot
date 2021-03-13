@@ -4,40 +4,17 @@ from decimal import Decimal, DecimalException
 from urllib.parse import urlparse
 
 import discord
-from discord.ext import tasks, commands
+from discord.ext import tasks
 from urllib.request import urlopen, Request
 from web3 import Web3
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-
-def fetch_abi(contract):
-    if not os.path.exists('contracts'):
-        os.mkdir('./contracts')
-
-    filename = f'contracts/{contract}.json'
-    if os.path.exists(filename):
-        with open(filename, 'r') as abi_file:
-            abi = abi_file.read()
-    else:
-        # TODO: Error handling
-        url = 'https://api.bscscan.com/api?module=contract&action=getabi&address=' + contract
-        abi_response = urlopen(
-            Request(url, headers={'User-Agent': 'Mozilla'})).read().decode('utf8')
-        abi = json.loads(abi_response)['result']
-
-        with open(filename, 'w') as abi_file:
-            abi_file.write(abi)
-
-    return json.loads(abi)
+from bot.utils import fetch_abi, list_cogs
+from bot.bot import Bot
 
 
-def list_cogs(directory):
-    basedir = (os.path.basename(os.path.dirname(__file__)))
-    return (f"{basedir}.{directory}.{f.rstrip('.py')}" for f in os.listdir(basedir + '/' + directory) if f.endswith('.py'))
-
-
-class PriceBot(commands.Bot):
+class PriceBot(Bot):
     contracts = {}
     config = {}
     current_price = 0
@@ -57,26 +34,16 @@ class PriceBot(commands.Bot):
     intents = discord.Intents.default()
     intents.members = True
 
-    def __init__(self, config, token):
-        super().__init__(command_prefix=self.handle_prefix, case_insensitive=True)
+    def __init__(self, config, bot, token):
+        super().__init__(config, bot, list_cogs('commands', __file__))
         self.config = config
+        self.bot = bot
         self.token = token
         self.amm = config['amm'][token['from']]
 
         if not config['amm'].get(token['from']):
             raise Exception(
-                f"{token['name']}'s AMM {token['from']} does not exist!")
-
-        if node := config.get('bsc_node'):
-            bsc_node = urlparse(node)
-            if 'http' in bsc_node.scheme:
-                provider = Web3.HTTPProvider(node)
-            else:
-                provider = Web3.IPCProvider(bsc_node.path)
-
-            self.web3 = Web3(provider)  # type: Web3.eth.account
-        else:
-            raise Exception("Required setting 'bsc_node' not configured!")
+                f"{bot['name']}'s AMM {token['from']} does not exist!")
 
         self.contracts['bnb'] = self.web3.eth.contract(
             address=self.address['bnb'], abi=self.token['abi'])
@@ -90,18 +57,9 @@ class PriceBot(commands.Bot):
         if not self.token.get('decimals'):
             self.token['decimals'] = self.contracts['token'].functions.decimals().call()
 
-        self.help_command = commands.DefaultHelpCommand(
-            command_attrs={"hidden": True})
-
         self.dbengine = create_engine('sqlite:///pricebot.db', echo=True)
         session = sessionmaker(bind=self.dbengine)
         self.db = session()
-
-    def handle_prefix(self, bot, message):
-        if isinstance(message.channel, discord.channel.DMChannel):
-            return ''
-
-        return commands.when_mentioned(bot, message)
 
     def get_amm(self, amm=None):
         if not amm:
@@ -115,7 +73,7 @@ class PriceBot(commands.Bot):
             return f"{self.token['emoji'] or self.token['icon']}{value}"
 
         value = f"{value} " if value else ''
-        return f"{value}{self.token['name']}"
+        return f"{value}{self.bot['name']}"
 
     def get_bnb_price(self, lp):
         bnb_amount = Decimal(
@@ -165,58 +123,3 @@ class PriceBot(commands.Bot):
     async def get_lp_value(self):
         self.total_supply = self.contracts['lp'].functions.totalSupply().call()
         return [self.token_amount / self.total_supply, self.bnb_amount / self.total_supply]
-
-    async def on_guild_join(self, guild):
-        await guild.me.edit(nick=self.nickname)
-
-    async def check_restrictions(self, ctx):
-        server_restriction = self.config.get(
-            'restrict_to', {}).get(ctx.guild.id)
-        if server_restriction and not await self.is_owner(ctx.author):
-            if ctx.channel.id not in server_restriction:
-                if ctx.channel.permissions_for(ctx.guild.me).manage_messages:
-                    await ctx.message.delete()
-                return False
-        return True
-
-    async def on_ready(self):
-        restrictions = self.config.get('restrict_to', {})
-        all_channels = self.get_all_channels()
-        for guild_id, channels in restrictions.items():
-            for i, channel in enumerate(channels):
-                if not self.parse_int(channel):
-                    channels[i] = discord.utils.get(
-                        all_channels, guild__id=guild_id, name=channel)
-                    if not channels[i]:
-                        raise Exception('No channel named channel!')
-
-    @staticmethod
-    def parse_int(val):
-        try:
-            val = int(val)
-        except ValueError:
-            val = None
-
-        return val
-
-    @staticmethod
-    def parse_decimal(val):
-        try:
-            val = Decimal(val)
-        except (TypeError, DecimalException):
-            val = None
-
-        return val
-
-    def exec(self):
-        for cog in list_cogs('commands'):
-            try:
-                if self.token.get('command_override'):
-                    override = self.token.get('command_override')
-                    cog = override.get(cog, cog)
-
-                self.load_extension(cog)
-            except Exception as e:
-                print(f'Failed to load extension {cog}.', e)
-
-        self.run(self.token['apikey'])

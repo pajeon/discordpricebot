@@ -1,6 +1,7 @@
 import sys
 import importlib
 from pricebot import pricebot
+from boardroombot import boardroombot
 import yaml
 
 bots = {}
@@ -11,21 +12,28 @@ with open('config.yaml') as cfg_file:
 cfg_defaults = cfg_data.pop('_config')
 
 if len(sys.argv) < 2:
-    print(f"Usage: {sys.argv[0]} <token>")
+    print(f"Usage: {sys.argv[0]} <name>")
     sys.exit()
 
 if sys.argv[1] and cfg_data.get(sys.argv[1]):
     cfg_data = {sys.argv[1]: cfg_data.get(sys.argv[1])}
 else:
-    raise Exception(f"Token {sys.argv[1]} does not exist in configuration!")
+    raise Exception(f"{sys.argv[1]} does not exist in configuration!")
 
 for cfg_name, cfg_info in cfg_data.items():
-    token = cfg_info.get('token')
-    if not token:
-        raise Exception(f"Each instance must have a token configuration")
+    bot = cfg_info.get('bot')
+    if not bot:
+        raise Exception(f"Each instance must have a bot configuration")
 
-    token['name'] = cfg_name
-    token['abi'] = pricebot.fetch_abi(token['contract'])
+    token = cfg_info.get('token')
+    boardroom = cfg_info.get('boardroom')
+    if (not token and not boardroom) or (token and boardroom):
+        raise Exception(
+            f"Each instance must have one token or boardroom configuration")
+
+    bot['name'] = cfg_name
+    if token:
+        token['abi'] = pricebot.fetch_abi(token['contract'])
 
     config = ({**cfg_defaults, **cfg_info.get('config', {})})
 
@@ -40,6 +48,10 @@ for cfg_name, cfg_info in cfg_data.items():
             print(f"The plugin for {cfg_name} must be named PriceBot!")
             sys.exit()
     else:
-        bots[cfg_name] = pricebot.PriceBot(config, token)
+        if token:
+            instance = pricebot.PriceBot(config, bot, token)
+        else:
+            instance = boardroombot.BoardroomBot(config, bot, boardroom)
+        bots[cfg_name] = instance
 
     bots[cfg_name].exec()
