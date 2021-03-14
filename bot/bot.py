@@ -9,22 +9,36 @@ from discord.ext import tasks, commands
 from urllib.request import urlopen, Request
 from web3 import Web3
 
-from bot.utils import list_cogs
+from bot.utils import fetch_abi, list_cogs
 
 
 class Bot(commands.Bot):
     commands = []
+    contracts = {}
     config = {}
     nickname = ''
+    bnb_price = 0
+    token_abi = []
+
+    # Static BSC contract addresses
+    address = {
+        'bnb': '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
+        'busd': '0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56'
+    }
 
     intents = discord.Intents.default()
     intents.members = True
 
-    def __init__(self, config, bot_config, extra_cogs=[]):
+    def __init__(self, config, common, extra_cogs=[]):
         super().__init__(command_prefix=self.handle_prefix, case_insensitive=True)
         self.commands = chain(list_cogs('commands'), extra_cogs)
         self.config = config
-        self.bot_config = bot_config
+        self.common = common
+        self.amm = config['amm'][common['amm']]
+
+        if not config['amm'].get(common['amm']):
+            raise Exception(
+                f"{bot['name']}'s AMM {common['amm']} does not exist!")
 
         if node := config.get('bsc_node'):
             bsc_node = urlparse(node)
@@ -37,8 +51,55 @@ class Bot(commands.Bot):
         else:
             raise Exception("Required setting 'bsc_node' not configured!")
 
+        self.token_abi = fetch_abi(self.address['bnb'])
+        self.contracts['bnb'] = self.web3.eth.contract(
+            address=self.address['bnb'], abi=self.token_abi)
+        self.contracts['busd'] = self.web3.eth.contract(
+            address=self.address['busd'], abi=self.token_abi)
+
         self.help_command = commands.DefaultHelpCommand(
             command_attrs={"hidden": True})
+
+    def get_amm(self, amm=None):
+        if not amm:
+            return self.amm
+
+        return self.config['amm'].get(amm)
+
+    def get_bnb_price(self, lp):
+        bnb_amount = Decimal(
+            self.contracts['bnb'].functions.balanceOf(lp).call())
+        busd_amount = Decimal(
+            self.contracts['busd'].functions.balanceOf(lp).call())
+
+        self.bnb_price = Decimal(busd_amount) / Decimal(bnb_amount)
+
+        return self.bnb_price
+
+    def get_lp_amounts(self, token_contract, native_lp, decimals):
+        bnb_amount = Decimal(
+            self.contracts['bnb'].functions.balanceOf(native_lp).call()).shift(-18)
+        token_amount = Decimal(token_contract.functions.balanceOf(native_lp).call(
+        )).shift(-decimals)
+        return (bnb_amount, token_amount)
+
+    def get_prices(self, token_contract, native_lp, bnb_lp, decimals):
+        (bnb_amount, token_amount) = self.get_lp_amounts(
+            token_contract, native_lp, decimals)
+
+        try:
+            price_bnb = bnb_amount / token_amount
+        except ZeroDivisionError:
+            price_bnb = 0
+
+        bnb_price = self.get_bnb_price(bnb_lp)
+        price_busd = price_bnb * bnb_price
+        return {
+            'bnb_amount': bnb_amount,
+            'token_amount': token_amount,
+            'price_bnb': price_bnb,
+            'price_busd': price_busd
+        }
 
     def handle_prefix(self, bot, message):
         if isinstance(message.channel, discord.channel.DMChannel):
@@ -97,12 +158,12 @@ class Bot(commands.Bot):
     def exec(self):
         for cog in self.commands:
             try:
-                if self.bot_config.get('command_override'):
-                    override = self.bot_config.get('command_override')
+                if self.common.get('command_override'):
+                    override = self.common.get('command_override')
                     cog = override.get(cog, cog)
 
                 self.load_extension(cog)
             except Exception as e:
                 print(f'Failed to load extension {cog}.', e)
 
-        self.run(self.bot_config['apikey'])
+        self.run(self.common['apikey'])

@@ -6,3 +6,4 @@ pricebot/plugin/
 __pycache__/
 .idea/
 venv
+.vscode

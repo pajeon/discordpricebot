@@ -20,6 +20,16 @@ class Boardroom(commands.Cog, command_attrs=dict(hidden=True)):
         self.bot.epoch_loop.add_exception_type(discord.errors.HTTPException)
         self.bot.epoch_loop.start()
 
+        if 'stats_channels' in self.bot.boardroom:
+            refresh_rate = self.bot.common.get(
+                'refresh_rate', self.bot.config['refresh_rate'])
+            self.bot.events_loop = tasks.loop(
+                seconds=refresh_rate)(self.bot.get_latest_events)
+            self.bot.events_loop.add_exception_type(
+                discord.errors.HTTPException)
+            self.bot.events_loop.add_exception_type(ValueError)
+            self.bot.events_loop.start()
+
     async def update(self):
         self.bot.get_epoch()
 
@@ -29,6 +39,12 @@ class Boardroom(commands.Cog, command_attrs=dict(hidden=True)):
         presence = self.bot.generate_presence()
         if presence:
             await self.bot.change_presence(activity=discord.Game(name=presence))
+
+    @commands.command(help='Display statistics')
+    async def stats(self, ctx: commands.Context):
+        async with ctx.typing():
+            stats = self.bot.generate_stats()
+            await ctx.channel.send(stats)
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):

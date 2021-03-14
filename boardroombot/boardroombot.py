@@ -21,17 +21,23 @@ class BoardroomBot(Bot):
     epoch = ''
     next_epoch = ''
     cash_per_share = None
+    filter_lastblock = None
 
-    def __init__(self, config, bot, boardroom):
-        super().__init__(config, bot, list_cogs('commands', __file__))
+    def __init__(self, config, common, boardroom):
+        super().__init__(config, common, list_cogs('commands', __file__))
         self.config = config
-        self.bot = bot
         self.boardroom = boardroom
 
         self.contracts['cash'] = self.web3.eth.contract(
             address=self.boardroom['cash'], abi=fetch_abi(boardroom['cash']))
+        self.contracts['cash_lp'] = self.web3.eth.contract(
+            address=self.boardroom['cash_lp'], abi=fetch_abi(boardroom['cash_lp']))
         self.contracts['share'] = self.web3.eth.contract(
             address=self.boardroom['share'], abi=fetch_abi(boardroom['share']))
+        self.contracts['share_lp'] = self.web3.eth.contract(
+            address=self.boardroom['share_lp'], abi=fetch_abi(boardroom['share_lp']))
+        self.contracts['rewards'] = self.web3.eth.contract(
+            address=self.boardroom['rewards'], abi=fetch_abi(boardroom['rewards']))
         self.contracts['treasury'] = self.web3.eth.contract(
             address=self.boardroom['treasury'], abi=fetch_abi(boardroom['treasury']))
         self.contracts['boardroom'] = self.web3.eth.contract(
@@ -44,6 +50,18 @@ class BoardroomBot(Bot):
             self.boardroom['share_decimals'] = self.contracts['share'].functions.decimals(
             ).call()
 
+        # cache constants
+        self.boardroom['treasury_gameFundSharedPercent'] = Decimal(
+            self.contracts['treasury'].functions.gameFundSharedPercent().call())
+        self.boardroom['treasury_PERIOD'] = self.contracts['treasury'].functions.PERIOD(
+        ).call()
+        self.boardroom['rewards_startBlock'] = self.contracts['rewards'].functions.startBlock(
+        ).call()
+        self.boardroom['rewards_TOTAL_REWARDS'] = Decimal(self.contracts['rewards'].functions.TOTAL_REWARDS(
+        ).call()).shift(-self.boardroom['share_decimals'])
+
+        self.filter_lastblock = self.web3.eth.block_number()
+
     def get_epoch(self):
         self.epoch = self.contracts['treasury'].functions.epoch().call()
         epoch_time_delta = relativedelta(datetime.utcnow(),
@@ -51,16 +69,20 @@ class BoardroomBot(Bot):
         self.next_epoch = f"in {abs(epoch_time_delta.hours)}h {abs(epoch_time_delta.minutes)}m"
 
         epoch_price = Decimal(self.contracts['treasury'].functions.getDollarPrice().call(
-        )) * Decimal(10**(-self.boardroom['cash_decimals']))
+        )).shift(-self.boardroom['cash_decimals'])
+        self.total_cash_supply = (Decimal(self.contracts['cash'].functions.totalSupply().call(
+        )) - Decimal(self.contracts['treasury'].functions.seigniorageSaved().call())).shift(-self.boardroom['cash_decimals'])
+        self.boardroom_stake = Decimal(self.contracts['boardroom'].functions.totalSupply().call(
+        )).shift(-self.boardroom['share_decimals'])
+
         if epoch_price > Decimal(1):
             expansion_rate = min(epoch_price - Decimal(1), Decimal(
                 self.contracts['treasury'].functions.maxSupplyExpansionPercent().call()) / Decimal(10000))
-            total_cash_supply = (Decimal(self.contracts['cash'].functions.totalSupply().call(
-            )) - Decimal(self.contracts['treasury'].functions.seigniorageSaved().call())) * Decimal(10**(-self.boardroom['cash_decimals']))
-            new_supply = total_cash_supply * expansion_rate
-            boardroom_stake = Decimal(self.contracts['boardroom'].functions.totalSupply().call(
-            )) * Decimal(10**(-self.boardroom['share_decimals']))
-            self.cash_per_share = new_supply / boardroom_stake
+            seigniorage_amount = self.total_cash_supply * expansion_rate
+            boardroom_amount = seigniorage_amount * \
+                (Decimal(
+                    1) - self.boardroom['treasury_gameFundSharedPercent'] / Decimal(10000))
+            self.cash_per_share = boardroom_amount / self.boardroom_stake
 
         else:
             self.cash_per_share = None
@@ -72,4 +94,108 @@ class BoardroomBot(Bot):
         return f"{round(self.cash_per_share, 4):.4f} SOUP per SOUPS"
 
     def generate_nickname(self):
-        return f"Epoch {self.epoch} {self.next_epoch}"
+        return f"Epoch {self.epoch+1} {self.next_epoch}"
+
+    def generate_stats(self):
+        self.get_bnb_price(self.amm['address'])
+
+        # amounts in LPs
+        (self.cash_lp_bnb_amount, self.cash_lp_token_amount) = self.get_lp_amounts(
+            self.contracts['cash'], self.boardroom['cash_lp'], self.boardroom["cash_decimals"])
+        self.cash_price = self.cash_lp_bnb_amount / self.cash_lp_token_amount
+        (self.share_lp_bnb_amount, self.share_lp_token_amount) = self.get_lp_amounts(
+            self.contracts['share'], self.boardroom['share_lp'], self.boardroom["share_decimals"])
+        self.share_price = self.share_lp_bnb_amount / self.share_lp_token_amount
+
+        # share supply = (totalSupply - total rewards) + unclaimed funds + generated rewards
+        total_share_supply = (
+            Decimal(self.contracts['share'].functions.totalSupply().call()) +
+            Decimal(self.contracts['share'].functions.unclaimedTreasuryFund().call()) +
+            Decimal(
+                self.contracts['share'].functions.unclaimedDevFund().call()) +
+            Decimal(
+                self.contracts['rewards'].functions.getGeneratedReward(self.boardroom['rewards_startBlock'], self.filter_lastblock).call())
+        ).shift(-self.boardroom['share_decimals']) - self.boardroom['rewards_TOTAL_REWARDS']
+
+        # LPs staked in rewards
+        total_cash_lp_supply = Decimal(
+            self.contracts['cash_lp'].functions.totalSupply().call()).shift(-18)
+        rewards_cash_lp = Decimal(self.contracts['cash_lp'].functions.balanceOf(
+            self.boardroom['rewards']).call()).shift(-18)
+        rewards_cash_lp_pct = rewards_cash_lp / total_cash_lp_supply
+        rewards_cash_lp_value = (
+            self.cash_lp_token_amount * self.cash_price + self.cash_lp_bnb_amount) * rewards_cash_lp_pct
+
+        total_share_lp_supply = Decimal(
+            self.contracts['share_lp'].functions.totalSupply().call()).shift(-18)
+        rewards_share_lp = Decimal(self.contracts['share_lp'].functions.balanceOf(
+            self.boardroom['rewards']).call()).shift(-18)
+        rewards_share_lp_pct = rewards_share_lp / total_share_lp_supply
+        rewards_share_lp_value = (
+            self.share_lp_token_amount * self.share_price + self.share_lp_bnb_amount) * rewards_share_lp_pct
+
+        cash_mc = self.total_cash_supply * self.cash_price
+        share_mc = total_share_supply * self.share_price
+        tvl = self.boardroom_stake * self.share_price + \
+            rewards_share_lp_value + rewards_cash_lp_value
+
+        roi = self.cash_per_share * self.cash_price / self.share_price
+        epochs_per_day = Decimal(86400) / self.boardroom['treasury_PERIOD']
+
+        description = f""":notepad_spiral: **The Latest Soup** :notepad_spiral:
+```
+Total Soup:          {self.total_cash_supply:,.2f}
+Soup Price:          {self.cash_price:.2f} BNB (${(self.cash_price * self.bnb_price):,.2f})
+Soup Market Cap:     {cash_mc:,.2f} BNB (${(cash_mc * self.bnb_price):,.0f})
+
+Total Soups:         {total_share_supply:,.2f}
+Soups Price:         {self.share_price:,.2f} BNB (${(self.share_price * self.bnb_price):,.2f})
+Soups Market Cap:    {share_mc:,.2f} BNB (${(share_mc * self.bnb_price):,.0f})
+Soups in LP:         {self.share_lp_token_amount:,.2f} ({self.share_lp_token_amount/total_share_supply:.2%})
+Soups in Boiler:     {self.boardroom_stake:,.2f} ({self.boardroom_stake/total_share_supply:.2%})
+
+Soup LP in Kitchen:  ${(rewards_cash_lp_value * self.bnb_price):,.0f} ({rewards_cash_lp_pct:.2%})
+Soups LP in Kitchen: ${(rewards_share_lp_value * self.bnb_price):,.0f} ({rewards_share_lp_pct:.2%})
+TVL:                 ${tvl * self.bnb_price:,.0f}
+
+Soups/Soup Ratio:    {self.share_price/self.cash_price:.2f}
+Est. Boiler ROI:     {roi:.2%} per epoch, {roi*epochs_per_day:.2%} daily
+```"""
+        return description
+
+    async def get_latest_events(self):
+        latest_block = self.web3.eth.block_number()
+        to_block = min(self.filter_lastblock + 5000, latest_block)
+        event_filter = self.contracts['treasury'].events.BoilerFunded.createFilter(
+            fromBlock=self.filter_lastblock,
+            toBlock=to_block
+        )
+
+        event = event_filter.get_all_entries()[0]
+        self.filter_lastblock = to_block + 1
+
+        if not event:
+            return
+
+        print(event)
+        self.get_epoch()  # refresh epoch data
+
+        timestamp = datetime.utcfromtimestamp(event.args.timestamp)
+        seigniorage = Decimal(
+            event.args.seigniorage).shift(-self.boardroom['cash_decimals'])
+
+        title = ':fondue::fondue::fondue: **Soup has been served!** :fondue::fondue::fondue:'
+        description = f"""```
+Epoch {self.epoch}
+Fresh hot Soup: {seigniorage:.2f}
+Soup per Soups: {(seigniorage / self.boardroom_stake):.4f}
+```
+{self.generate_stats()}
+"""
+
+        embed = discord.Embed(color=discord.Color.green(),
+                              title=title, description=description, timestamp=timestamp)
+
+        for channel_id in self.boardroom['stats_channels']:
+            channel = self.get_channel(channel_id)
+            await channel.send(embed=embed)

@@ -21,9 +21,9 @@ else:
     raise Exception(f"{sys.argv[1]} does not exist in configuration!")
 
 for cfg_name, cfg_info in cfg_data.items():
-    bot = cfg_info.get('bot')
-    if not bot:
-        raise Exception(f"Each instance must have a bot configuration")
+    common = cfg_info.get('common')
+    if not common:
+        raise Exception(f"Each instance must have a common configuration")
 
     token = cfg_info.get('token')
     boardroom = cfg_info.get('boardroom')
@@ -31,9 +31,7 @@ for cfg_name, cfg_info in cfg_data.items():
         raise Exception(
             f"Each instance must have one token or boardroom configuration")
 
-    bot['name'] = cfg_name
-    if token:
-        token['abi'] = pricebot.fetch_abi(token['contract'])
+    common['name'] = cfg_name
 
     config = ({**cfg_defaults, **cfg_info.get('config', {})})
 
@@ -49,9 +47,10 @@ for cfg_name, cfg_info in cfg_data.items():
             sys.exit()
     else:
         if token:
-            instance = pricebot.PriceBot(config, bot, token)
+            instance = pricebot.PriceBot(config, common, token)
         else:
-            instance = boardroombot.BoardroomBot(config, bot, boardroom)
+            instance = boardroombot.BoardroomBot(
+                config, common, boardroom)
         bots[cfg_name] = instance
 
     bots[cfg_name].exec()
