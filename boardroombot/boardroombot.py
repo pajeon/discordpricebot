@@ -156,21 +156,21 @@ class BoardroomBot(Bot):
             share_lp = shift(
                 Decimal(self.contracts['share_lp'].functions.balanceOf(address).call()), -18)
 
-            cash_rewards_data = self.contracts['rewards'].functions.userInfo(
-                0, address).call()
-            cash_lp_staked = shift(Decimal(cash_rewards_data[0]), -18)
+            cash_lp_staked = shift(Decimal(self.contracts['rewards'].functions.balanceOf(
+                0, address).call()), -18)
             cash_lp_total_bnb = self.cash_lp_bnb_amount * 2 / \
                 total_cash_lp_supply * (cash_lp + cash_lp_staked)
             cash_lp_rewards = shift(
-                Decimal(cash_rewards_data[1]), -self.boardroom['share_decimals'])
+                Decimal(self.contracts['rewards'].functions.pendingRewards(
+                    0, address).call()), -self.boardroom['share_decimals'])
 
-            share_rewards_data = self.contracts['rewards'].functions.userInfo(
-                1, address).call()
-            share_lp_staked = shift(Decimal(share_rewards_data[0]), -18)
+            share_lp_staked = shift(Decimal(self.contracts['rewards'].functions.balanceOf(
+                1, address).call()), -18)
             share_lp_total_bnb = self.share_lp_bnb_amount * 2 / \
                 total_share_lp_supply * (share_lp + share_lp_staked)
             share_lp_rewards = shift(
-                Decimal(share_rewards_data[1]), -self.boardroom['share_decimals'])
+                Decimal(self.contracts['rewards'].functions.pendingRewards(
+                    1, address).call()), -self.boardroom['share_decimals'])
 
             cash_total_bnb = cash * self.cash_price
             share_total_bnb = (share + cash_lp_rewards +
