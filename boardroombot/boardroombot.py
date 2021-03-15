@@ -145,6 +145,42 @@ class BoardroomBot(Bot):
         roi = self.cash_per_share * self.cash_price / self.share_price
         epochs_per_day = Decimal(86400) / self.boardroom['treasury_PERIOD']
 
+        # get busd value of all cash, shares (incl. rewards), LPs
+        def get_all_balance(address):
+            cash = shift(Decimal(self.contracts['cash'].functions.balanceOf(
+                address).call()), -self.boardroom['cash_decimals'])
+            share = shift(Decimal(self.contracts['share'].functions.balanceOf(
+                address).call()), -self.boardroom['share_decimals'])
+            cash_lp = shift(
+                Decimal(self.contracts['cash_lp'].functions.balanceOf(address).call()), -18)
+            share_lp = shift(
+                Decimal(self.contracts['share_lp'].functions.balanceOf(address).call()), -18)
+
+            cash_rewards_data = self.contracts['rewards'].functions.userInfo(
+                0, address).call()
+            cash_lp_staked = shift(Decimal(cash_rewards_data[0]), -18)
+            cash_lp_total_bnb = self.cash_lp_bnb_amount * 2 / \
+                total_cash_lp_supply * (cash_lp + cash_lp_staked)
+            cash_lp_rewards = shift(
+                Decimal(cash_rewards_data[1]), -self.boardroom['share_decimals'])
+
+            share_rewards_data = self.contracts['rewards'].functions.userInfo(
+                1, address).call()
+            share_lp_staked = shift(Decimal(share_rewards_data[0]), -18)
+            share_lp_total_bnb = self.share_lp_bnb_amount * 2 / \
+                total_share_lp_supply * (share_lp + share_lp_staked)
+            share_lp_rewards = shift(
+                Decimal(share_rewards_data[1]), -self.boardroom['share_decimals'])
+
+            cash_total_bnb = cash * self.cash_price
+            share_total_bnb = (share + cash_lp_rewards +
+                               share_lp_rewards) * self.share_price
+            return self.bnb_price * (cash_total_bnb + share_total_bnb + cash_lp_total_bnb + share_lp_total_bnb)
+
+        game_fund = get_all_balance(self.boardroom['game_fund'])
+        community_fund = get_all_balance(self.boardroom['community_fund'])
+        dev_fund = get_all_balance(self.boardroom['dev_fund'])
+
         description = f""":notepad_spiral: **The Latest Soup** :notepad_spiral:
 ```
 Total Soup:          {self.total_cash_supply:,.2f}
@@ -163,6 +199,10 @@ TVL:                 ${tvl * self.bnb_price:,.0f}
 
 Soups/Soup Ratio:    {self.share_price/self.cash_price:.2f}
 Est. Boiler ROI:     {roi:.2%} per epoch, {roi*epochs_per_day:.2%} daily
+
+Game Fund:           ${game_fund:,.0f}
+Community Fund:      ${community_fund:,.0f}
+Dev Fund:            ${dev_fund:,.0f}
 ```"""
         return description
 
