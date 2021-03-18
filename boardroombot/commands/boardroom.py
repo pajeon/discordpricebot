@@ -18,6 +18,7 @@ class Boardroom(commands.Cog, command_attrs=dict(hidden=True)):
         self.bot.epoch_loop = tasks.loop(
             seconds=self.bot.config['refresh_rate'])(self.update)
         self.bot.epoch_loop.add_exception_type(discord.errors.HTTPException)
+        self.bot.epoch_loop.add_exception_type(ValueError)
         self.bot.epoch_loop.start()
 
         if 'stats_channels' in self.bot.boardroom:

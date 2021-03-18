@@ -27,7 +27,7 @@ class Prices(commands.Cog, command_attrs=dict(hidden=True)):
 
         self.bot.priceloop = tasks.loop(
             seconds=self.bot.config['refresh_rate'])(self.update_price)
-        # self.bot.priceloop.add_exception_type(discord.errors.HTTPException)
+        self.bot.priceloop.add_exception_type(discord.errors.HTTPException)
         self.bot.priceloop.start()
 
     async def update_price(self):
