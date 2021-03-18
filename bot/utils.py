@@ -1,6 +1,6 @@
 import json
 import os
-
+from decimal import Decimal
 from urllib.request import urlopen, Request
 
 
@@ -28,3 +28,7 @@ def fetch_abi(contract):
 def list_cogs(directory, file=__file__):
     basedir = (os.path.basename(os.path.dirname(file)))
     return (f"{basedir}.{directory}.{f.rstrip('.py')}" for f in os.listdir(basedir + '/' + directory) if f.endswith('.py'))
+
+
+def shift(decimal, n):
+    return decimal * (Decimal('10') ** n)

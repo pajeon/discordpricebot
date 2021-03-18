@@ -10,12 +10,8 @@ from discord.ext import tasks, commands
 from urllib.request import urlopen, Request
 from web3 import Web3
 
-from bot.utils import fetch_abi, list_cogs
+from bot.utils import fetch_abi, list_cogs, shift
 from bot.bot import Bot
-
-
-def shift(decimal, n):
-    return decimal * (Decimal('10') ** n)
 
 
 class BoardroomBot(Bot):

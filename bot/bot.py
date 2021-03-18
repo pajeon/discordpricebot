@@ -9,7 +9,7 @@ from discord.ext import tasks, commands
 from urllib.request import urlopen, Request
 from web3 import Web3
 
-from bot.utils import fetch_abi, list_cogs
+from bot.utils import fetch_abi, list_cogs, shift
 
 
 class Bot(commands.Bot):
@@ -38,7 +38,7 @@ class Bot(commands.Bot):
 
         if not config['amm'].get(common['amm']):
             raise Exception(
-                f"{bot['name']}'s AMM {common['amm']} does not exist!")
+                f"{common['name']}'s AMM {common['amm']} does not exist!")
 
         if node := config.get('bsc_node'):
             bsc_node = urlparse(node)
@@ -77,10 +77,10 @@ class Bot(commands.Bot):
         return self.bnb_price
 
     def get_lp_amounts(self, token_contract, native_lp, decimals):
-        bnb_amount = Decimal(
-            self.contracts['bnb'].functions.balanceOf(native_lp).call()).shift(-18)
-        token_amount = Decimal(token_contract.functions.balanceOf(native_lp).call(
-        )).shift(-decimals)
+        bnb_amount = shift(Decimal(
+            self.contracts['bnb'].functions.balanceOf(native_lp).call()), -18)
+        token_amount = shift(Decimal(token_contract.functions.balanceOf(native_lp).call(
+        )), -decimals)
         return (bnb_amount, token_amount)
 
     def get_prices(self, token_contract, native_lp, bnb_lp, decimals):

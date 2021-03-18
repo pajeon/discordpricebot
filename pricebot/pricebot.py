@@ -10,12 +10,13 @@ from web3 import Web3
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from bot.utils import fetch_abi, list_cogs
+from bot.utils import fetch_abi, list_cogs, shift
 from bot.bot import Bot
 
 
 class PriceBot(Bot):
-    current_price = 0
+    price_bnb = 0
+    price_busd = 0
     bnb_amount = 0
     token_amount = 0
     total_supply = 0
@@ -49,9 +50,11 @@ class PriceBot(Bot):
 
     def get_token_price(self):
         prices = self.get_prices(self.contracts['token'], self.token['lp'],
-                                 self.amm['address'], self.token["decimals"]).quantize(self.display_precision)
+                                 self.amm['address'], self.token["decimals"])
         self.bnb_amount = prices['bnb_amount']
         self.token_amount = prices['token_amount']
+        self.price_bnb = prices['price_bnb']
+        self.price_busd = prices['price_busd']
         return prices['price_busd']
 
     def generate_presence(self):
@@ -59,20 +62,20 @@ class PriceBot(Bot):
             return ''
 
         try:
-            total_supply = self.contracts['lp'].functions.totalSupply(
-            ).call().shift(-18)
+            total_supply = shift(Decimal(self.contracts['lp'].functions.totalSupply(
+            ).call()), -18)
             values = [Decimal(self.token_amount / total_supply),
                       Decimal(self.bnb_amount / total_supply)]
-            lp_price = self.current_price * values[0] * 2
+            lp_price = self.price_busd * values[0] * 2
 
             return f"LP ≈${round(lp_price, 2)} | {round(values[0], 4)} {self.token['icon']} + {round(values[1], 4)} BNB"
         except ValueError:
             pass
 
     def generate_nickname(self):
-        return f"{self.price_bnb:.2f} BNB (${self.current_price:.2f})"
+        return f"{self.price_bnb:.2f} BNB (${self.price_busd:.2f})"
 
     async def get_lp_value(self):
-        self.total_supply = self.contracts['lp'].functions.totalSupply(
-        ).call().shift(-18)
+        self.total_supply = shift(Decimal(self.contracts['lp'].functions.totalSupply(
+        ).call()), -18)
         return [self.token_amount / self.total_supply, self.bnb_amount / self.total_supply]
