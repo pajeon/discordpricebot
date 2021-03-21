@@ -58,6 +58,9 @@ class PriceBot(Bot):
         return prices['price_busd']
 
     def generate_presence(self):
+        if not self.token.get('show_lp', True):
+            return ''
+
         if not self.token_amount:
             return ''
 
@@ -73,6 +76,9 @@ class PriceBot(Bot):
             pass
 
     def generate_nickname(self):
+        if self.token['contract'] == self.address['bnb']:
+            return f"${self.price_busd:.2f}"
+
         return f"{self.price_bnb:.2f} BNB (${self.price_busd:.2f})"
 
     async def get_lp_value(self):

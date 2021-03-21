@@ -60,8 +60,7 @@ class Prices(commands.Cog, command_attrs=dict(hidden=True)):
             self.current_ath = ath
 
         presence = self.bot.generate_presence()
-        if presence:
-            await self.bot.change_presence(activity=discord.Game(name=presence))
+        await self.bot.change_presence(activity=discord.Game(name=presence))
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
