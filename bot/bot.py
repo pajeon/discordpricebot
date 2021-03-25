@@ -8,6 +8,7 @@ import discord
 from discord.ext import tasks, commands
 from urllib.request import urlopen, Request
 from web3 import Web3
+from web3.middleware import geth_poa_middleware
 
 from bot.utils import fetch_abi, list_cogs, shift
 
@@ -48,6 +49,7 @@ class Bot(commands.Bot):
                 provider = Web3.IPCProvider(bsc_node.path)
 
             self.web3 = Web3(provider)  # type: Web3.eth.account
+            self.web3.middleware_onion.inject(geth_poa_middleware, layer=0)
         else:
             raise Exception("Required setting 'bsc_node' not configured!")
 

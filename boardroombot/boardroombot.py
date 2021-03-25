@@ -9,6 +9,7 @@ import discord
 from discord.ext import tasks, commands
 from urllib.request import urlopen, Request
 from web3 import Web3
+from web3.logs import DISCARD
 
 from bot.utils import fetch_abi, list_cogs, shift
 from bot.bot import Bot
@@ -67,7 +68,7 @@ class BoardroomBot(Bot):
         self.boardroom['rewards_TOTAL_REWARDS'] = shift(Decimal(self.contracts['rewards'].functions.TOTAL_REWARDS(
         ).call()), -self.boardroom['share_decimals'])
 
-        self.filter_lastblock = self.web3.eth.block_number()
+        self.filter_lastblock = self.web3.eth.block_number
 
     def get_epoch(self):
         self.epoch = self.contracts['treasury'].functions.epoch().call()
@@ -229,40 +230,56 @@ Dev Fund:            ${dev_fund:,.0f}
         return description
 
     async def get_latest_events(self):
-        latest_block = self.web3.eth.block_number()
-        to_block = min(self.filter_lastblock + 5000, latest_block)
-        event_filter = self.contracts['treasury'].events.BoilerFunded.createFilter(
-            fromBlock=self.filter_lastblock,
-            toBlock=to_block
-        )
-
+        to_block = self.web3.eth.block_number
         print('from', self.filter_lastblock, 'to', to_block)
-        events = event_filter.get_all_entries()
-        self.filter_lastblock = to_block + 1
 
-        if not events:
-            return
+        method_id = self.web3.keccak(text="allocateSeigniorage()")[0:4].hex()
 
-        event = events[0]
-        print(event)
-        self.get_epoch()  # refresh epoch data
+        timestamp, title, description = None, None, None
+        for block_number in range(self.filter_lastblock, to_block):
+            block = self.web3.eth.get_block(
+                block_number, full_transactions=True)
+            for tx in block.transactions:
+                if tx.to == self.boardroom['treasury'] and tx.input == method_id:
+                    receipt = self.web3.eth.getTransactionReceipt(tx.hash)
+                    seigniorage_event = self.contracts['treasury'].events.BoilerFunded(
+                    ).processReceipt(receipt, errors=DISCARD)
+                    print(receipt)
 
-        timestamp = datetime.utcfromtimestamp(event.args.timestamp)
-        seigniorage = shift(Decimal(
-            event.args.seigniorage), -self.boardroom['cash_decimals'])
+                    self.get_epoch()  # refresh epoch data
 
-        title = ':fondue::fondue::fondue: **Soup has been served!** :fondue::fondue::fondue:'
-        description = f"""```
+                    if seigniorage_event:
+                        timestamp = datetime.utcfromtimestamp(
+                            seigniorage_event[0].args.timestamp)
+                        seigniorage = shift(Decimal(
+                            seigniorage_event[0].args.seigniorage), -self.boardroom['cash_decimals'])
+
+                        title = ':fondue::fondue::fondue: **Soup has been served!** :fondue::fondue::fondue:'
+                        description = f"""```
 Epoch {self.epoch}
 Fresh hot Soup: {seigniorage:.2f}
 Soup per Soups: {(seigniorage / self.boardroom_stake):.4f}
 ```
 {self.generate_stats()}
 """
+                    else:
+                        timestamp = datetime.utcfromtimestamp(
+                            block.timestamp)
 
-        embed = discord.Embed(color=discord.Color.green(),
-                              title=title, description=description, timestamp=timestamp)
+                        title = '**No Soup has been served**'
+                        description = f"""```
+Epoch {self.epoch}
+```
+{self.generate_stats()}
+"""
+                    break
 
-        for channel_id in self.boardroom['stats_channels']:
-            channel = self.get_channel(channel_id)
-            await channel.send(embed=embed)
+        self.filter_lastblock = to_block + 1
+
+        if timestamp:
+            embed = discord.Embed(color=discord.Color.green(),
+                                  title=title, description=description, timestamp=timestamp)
+
+            for channel_id in self.boardroom['stats_channels']:
+                channel = self.get_channel(channel_id)
+                await channel.send(embed=embed)
