@@ -97,7 +97,7 @@ class BoardroomBot(Bot):
             self.cash_per_share = None
 
     def generate_presence(self):
-        if self.burnable_cash:
+        if self.burnable_cash is not None:
             return f"{self.burnable_cash:,.2f} SOUPB available"
 
         if not self.cash_per_share:
