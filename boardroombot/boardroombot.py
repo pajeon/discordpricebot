@@ -20,7 +20,9 @@ class BoardroomBot(Bot):
     nickname = ''
     epoch = ''
     next_epoch = ''
+    epoch_price = None
     cash_per_share = None
+    burnable_cash = None
     filter_lastblock = None
 
     def __init__(self, config, common, boardroom):
@@ -36,6 +38,8 @@ class BoardroomBot(Bot):
             address=self.boardroom['share'], abi=fetch_abi(boardroom['share']))
         self.contracts['share_lp'] = self.web3.eth.contract(
             address=self.boardroom['share_lp'], abi=fetch_abi(boardroom['share_lp']))
+        self.contracts['bond'] = self.web3.eth.contract(
+            address=self.boardroom['bond'], abi=fetch_abi(boardroom['bond']))
         self.contracts['rewards'] = self.web3.eth.contract(
             address=self.boardroom['rewards'], abi=fetch_abi(boardroom['rewards']))
         self.contracts['treasury'] = self.web3.eth.contract(
@@ -48,6 +52,9 @@ class BoardroomBot(Bot):
             ).call()
         if not self.boardroom.get('share_decimals'):
             self.boardroom['share_decimals'] = self.contracts['share'].functions.decimals(
+            ).call()
+        if not self.boardroom.get('bond_decimals'):
+            self.boardroom['bond_decimals'] = self.contracts['bond'].functions.decimals(
             ).call()
 
         # cache constants
@@ -68,30 +75,35 @@ class BoardroomBot(Bot):
                                          datetime.utcfromtimestamp(self.contracts['treasury'].functions.nextEpochPoint().call()))
         self.next_epoch = f"in {abs(epoch_time_delta.hours)}h {abs(epoch_time_delta.minutes)}m"
 
-        epoch_price = shift(Decimal(self.contracts['treasury'].functions.getDollarPrice().call(
+        self.epoch_price = shift(Decimal(self.contracts['treasury'].functions.getDollarPrice().call(
         )), -self.boardroom['cash_decimals'])
         self.total_cash_supply = shift(Decimal(self.contracts['cash'].functions.totalSupply().call(
         )) - Decimal(self.contracts['treasury'].functions.seigniorageSaved().call()), -self.boardroom['cash_decimals'])
         self.boardroom_stake = shift(Decimal(self.contracts['boardroom'].functions.totalSupply().call(
         )), -self.boardroom['share_decimals'])
 
-        if epoch_price > Decimal(1):
-            expansion_rate = min(epoch_price - Decimal(1), Decimal(
+        if self.epoch_price > Decimal(1):
+            expansion_rate = min(self.epoch_price - Decimal(1), Decimal(
                 self.contracts['treasury'].functions.maxSupplyExpansionPercent().call()) / Decimal(10000))
             seigniorage_amount = self.total_cash_supply * expansion_rate
             boardroom_amount = seigniorage_amount * \
                 (Decimal(
                     1) - self.boardroom['treasury_gameFundSharedPercent'] / Decimal(10000))
             self.cash_per_share = boardroom_amount / self.boardroom_stake
-
+            self.burnable_cash = None
         else:
+            self.burnable_cash = shift(Decimal(self.contracts['treasury'].functions.getBurnableDollarLeft().call(
+            )), -self.boardroom['cash_decimals'])
             self.cash_per_share = None
 
     def generate_presence(self):
-        if not self.cash_per_share:
-            return 'No expansion'
+        if self.burnable_cash:
+            return f"{self.burnable_cash:,.2f} SOUPB available"
 
-        return f"{round(self.cash_per_share, 4):.4f} SOUP per SOUPS"
+        if not self.cash_per_share:
+            return ''
+
+        return f"{self.cash_per_share:.4f} SOUP per SOUPS"
 
     def generate_nickname(self):
         return f"Epoch {self.epoch+1} {self.next_epoch}"
@@ -133,13 +145,24 @@ class BoardroomBot(Bot):
         rewards_share_lp_value = (
             self.share_lp_token_amount * self.share_price + self.share_lp_bnb_amount) * rewards_share_lp_pct
 
+        # bonds
+        total_bond_supply = shift(
+            Decimal(self.contracts['bond'].functions.totalSupply().call()), -self.boardroom['bond_decimals'])
+        debt_ratio = total_bond_supply / total_cash_lp_supply
+
         cash_mc = self.total_cash_supply * self.cash_price
         share_mc = total_share_supply * self.share_price
         tvl = self.boardroom_stake * self.share_price + \
             rewards_share_lp_value + rewards_cash_lp_value
 
-        roi = self.cash_per_share * self.cash_price / self.share_price
-        epochs_per_day = Decimal(86400) / self.boardroom['treasury_PERIOD']
+        expansion_or_contraction_stats = ''
+        if self.epoch_price > Decimal(1):
+            roi = self.cash_per_share * self.cash_price / self.share_price
+            epochs_per_day = Decimal(86400) / self.boardroom['treasury_PERIOD']
+            expansion_or_contraction_stats = f"Est. Boiler ROI:     {roi:.2%} per epoch, {roi*epochs_per_day:.2%} daily"
+        else:
+
+            expansion_or_contraction_stats = f"SoupB Available:     {self.burnable_cash:,.2f}"
 
         # get busd value of all cash, shares (incl. rewards), LPs
         def get_all_balance(address):
@@ -193,8 +216,11 @@ Soup LP in Kitchen:  ${(rewards_cash_lp_value * self.bnb_price):,.0f} ({rewards_
 Soups LP in Kitchen: ${(rewards_share_lp_value * self.bnb_price):,.0f} ({rewards_share_lp_pct:.2%})
 TVL:                 ${tvl * self.bnb_price:,.0f}
 
+Total Soup Bonds:    {total_bond_supply:,.2f} ({debt_ratio:.2%})
+
 Soups/Soup Ratio:    {self.share_price/self.cash_price:.2f}
-Est. Boiler ROI:     {roi:.2%} per epoch, {roi*epochs_per_day:.2%} daily
+TWAP:                {self.epoch_price:.2f}
+{expansion_or_contraction_stats}
 
 Game Fund:           ${game_fund:,.0f}
 Community Fund:      ${community_fund:,.0f}
