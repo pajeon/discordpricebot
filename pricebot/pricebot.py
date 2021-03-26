@@ -20,7 +20,6 @@ class PriceBot(Bot):
     bnb_amount = 0
     token_amount = 0
     total_supply = 0
-    display_precision = Decimal('0.0001')  # Round to 4 token_decimals
 
     def __init__(self, config, common, token):
         super().__init__(config, common, list_cogs('commands', __file__))
@@ -39,6 +38,7 @@ class PriceBot(Bot):
         self.dbengine = create_engine('sqlite:///pricebot.db', echo=True)
         session = sessionmaker(bind=self.dbengine)
         self.db = session()
+        self.get_token_price()
 
     def icon_value(self, value=None):
         if self.token['emoji'] or self.token['icon']:
@@ -49,6 +49,17 @@ class PriceBot(Bot):
         return f"{value}{self.common['name']}"
 
     def get_token_price(self):
+        if self.amm.get('stableswap'):
+            self.price_busd = shift(Decimal(
+                self.contracts['lp'].functions.calculateSwapToBase(
+                    self.token['pool'],
+                    self.token['basePool'],
+                    self.token['fromIndex'],
+                    self.token['toIndex'],
+                    10 ** self.token['decimals']
+                ).call()), -self.token['decimals'])
+            return self.price_busd
+
         prices = self.get_prices(self.contracts['token'], self.token['lp'],
                                  self.amm['address'], self.token["decimals"])
         self.bnb_amount = prices['bnb_amount']
@@ -58,7 +69,12 @@ class PriceBot(Bot):
         return prices['price_busd']
 
     def generate_presence(self):
-        if not self.token.get('show_lp', True):
+        if not self.token.get('show_lp', True) or self.amm.get('stableswap'):
+            if self.token.get('show_mc'):
+                total_supply = shift(
+                    Decimal(self.contracts['token'].functions.totalSupply().call()), -18)
+                mc = self.price_busd * total_supply
+                return f"MC=${mc:,.0f}"
             return ''
 
         if not self.token_amount:
@@ -76,10 +92,18 @@ class PriceBot(Bot):
             pass
 
     def generate_nickname(self):
-        if self.token['contract'] == self.address['bnb']:
-            return f"${self.price_busd:.2f}"
+        price_busd = round(
+            self.price_busd, self.token.get('display_decimals', 2))
 
-        return f"{self.price_bnb:.2f} BNB (${self.price_busd:.2f})"
+        if self.token['contract'] == self.address['bnb']:
+            return f"${price_busd:,f}"
+
+        if self.token.get('show_bnb_price', True):
+            if self.token.get('display') == 'bnb':
+                return f"{self.price_bnb:.2f} BNB (${price_busd:,f})"
+            return f"${price_busd:,f} ({self.price_bnb:.2f} BNB)"
+        else:
+            return f"${price_busd:,f}"
 
     async def get_lp_value(self):
         self.total_supply = shift(Decimal(self.contracts['lp'].functions.totalSupply(
