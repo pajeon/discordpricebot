@@ -149,7 +149,7 @@ class BoardroomBot(Bot):
         # bonds
         total_bond_supply = shift(
             Decimal(self.contracts['bond'].functions.totalSupply().call()), -self.boardroom['bond_decimals'])
-        debt_ratio = total_bond_supply / total_cash_supply
+        debt_ratio = total_bond_supply / self.total_cash_supply
 
         cash_mc = self.total_cash_supply * self.cash_price
         share_mc = total_share_supply * self.share_price
