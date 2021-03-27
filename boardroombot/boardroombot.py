@@ -282,4 +282,5 @@ Epoch {self.epoch}
 
             for channel_id in self.boardroom['stats_channels']:
                 channel = self.get_channel(channel_id)
-                await channel.send(embed=embed)
+                if channel:
+                    await channel.send(embed=embed)
