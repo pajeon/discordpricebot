@@ -15,17 +15,16 @@ from bot.bot import Bot
 
 
 class PriceBot(Bot):
-    price_bnb = 0
+    price_quote = 0
     price_busd = 0
-    bnb_amount = 0
+    quote_amount = 0
     token_amount = 0
     total_supply = 0
 
     def __init__(self, config, common, token):
-        super().__init__(config, common, list_cogs('commands', __file__))
+        super().__init__(config, common, token, list_cogs('commands', __file__))
         self.config = config
         self.common = common
-        self.token = token
 
         self.contracts['token'] = self.web3.eth.contract(
             address=self.token['contract'], abi=self.token_abi)
@@ -62,19 +61,20 @@ class PriceBot(Bot):
 
         prices = self.get_prices(self.contracts['token'], self.token['lp'],
                                  self.amm['address'], self.token["decimals"])
-        self.bnb_amount = prices['bnb_amount']
+        self.quote_amount = prices['quote_amount']
         self.token_amount = prices['token_amount']
-        self.price_bnb = prices['price_bnb']
+        self.price_quote = prices['price_quote']
         self.price_busd = prices['price_busd']
         return prices['price_busd']
 
     def generate_presence(self):
-        if not self.token.get('show_lp', True) or self.amm.get('stableswap'):
-            if self.token.get('show_mc'):
-                total_supply = shift(
-                    Decimal(self.contracts['token'].functions.totalSupply().call()), -18)
-                mc = self.price_busd * total_supply
-                return f"MC=${mc:,.0f}"
+        if self.token.get('show_mc'):
+            total_supply = shift(
+                Decimal(self.contracts['token'].functions.totalSupply().call()), -18)
+            mc = self.price_busd * total_supply
+            return f"MC=${mc:,.0f}"
+
+        elif not self.token.get('show_lp', True) or self.amm.get('stableswap'):
             return ''
 
         if not self.token_amount:
@@ -84,7 +84,7 @@ class PriceBot(Bot):
             total_supply = shift(Decimal(self.contracts['lp'].functions.totalSupply(
             ).call()), -18)
             values = [Decimal(self.token_amount / total_supply),
-                      Decimal(self.bnb_amount / total_supply)]
+                      Decimal(self.quote_amount / total_supply)]
             lp_price = self.price_busd * values[0] * 2
 
             return f"LP ≈${round(lp_price, 2)} | {round(values[0], 4)} {self.token['icon']} + {round(values[1], 4)} BNB"
@@ -100,12 +100,12 @@ class PriceBot(Bot):
 
         if self.token.get('show_bnb_price', True):
             if self.token.get('display') == 'bnb':
-                return f"{self.price_bnb:.2f} BNB (${price_busd:,f})"
-            return f"${price_busd:,f} ({self.price_bnb:.2f} BNB)"
+                return f"{self.price_quote:.2f} BNB (${price_busd:,f})"
+            return f"${price_busd:,f} ({self.price_quote:.2f} BNB)"
         else:
             return f"${price_busd:,f}"
 
     async def get_lp_value(self):
         self.total_supply = shift(Decimal(self.contracts['lp'].functions.totalSupply(
         ).call()), -18)
-        return [self.token_amount / self.total_supply, self.bnb_amount / self.total_supply]
+        return [self.token_amount / self.total_supply, self.quote_amount / self.total_supply]

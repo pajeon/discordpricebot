@@ -108,7 +108,7 @@ class Prices(commands.Cog, command_attrs=dict(hidden=True)):
         num_tokens = self.bot.parse_decimal(num_tokens) or Decimal(1)
 
         try:
-            token_in_bnb = self.bot.bnb_amount / self.bot.token_amount
+            token_in_bnb = self.bot.quote_amount / self.bot.token_amount
         except ZeroDivisionError:
             token_in_bnb = Decimal(0)
 

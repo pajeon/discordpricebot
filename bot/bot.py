@@ -30,11 +30,12 @@ class Bot(commands.Bot):
     intents = discord.Intents.default()
     intents.members = True
 
-    def __init__(self, config, common, extra_cogs=[]):
+    def __init__(self, config, common, token, extra_cogs=[]):
         super().__init__(command_prefix=self.handle_prefix, case_insensitive=True)
         self.commands = chain(list_cogs('commands'), extra_cogs)
         self.config = config
         self.common = common
+        self.token = token
         self.amm = config['amm'][common['amm']]
 
         if not config['amm'].get(common['amm']):
@@ -52,6 +53,10 @@ class Bot(commands.Bot):
             self.web3.middleware_onion.inject(geth_poa_middleware, layer=0)
         else:
             raise Exception("Required setting 'bsc_node' not configured!")
+
+        quote_token = self.token.get('quote', 'bnb')
+        if quote_token != 'bnb':
+            print(f"Quote currency {quote_token} defaulting to $1")
 
         self.token_abi = fetch_abi(self.address['bnb'])
         self.contracts['bnb'] = self.web3.eth.contract(
@@ -79,27 +84,31 @@ class Bot(commands.Bot):
         return self.bnb_price
 
     def get_lp_amounts(self, token_contract, native_lp, decimals):
-        bnb_amount = shift(Decimal(
-            self.contracts['bnb'].functions.balanceOf(native_lp).call()), -18)
+        quote_amount = shift(Decimal(
+            self.contracts[self.token.get('quote', 'bnb')].functions.balanceOf(native_lp).call()), -18)
         token_amount = shift(Decimal(token_contract.functions.balanceOf(native_lp).call(
         )), -decimals)
-        return (bnb_amount, token_amount)
+        return (quote_amount, token_amount)
 
     def get_prices(self, token_contract, native_lp, bnb_lp, decimals):
-        (bnb_amount, token_amount) = self.get_lp_amounts(
+        (quote_amount, token_amount) = self.get_lp_amounts(
             token_contract, native_lp, decimals)
 
         try:
-            price_bnb = bnb_amount / token_amount
+            price_quote = quote_amount / token_amount
         except ZeroDivisionError:
-            price_bnb = 0
+            price_quote = 0
 
-        bnb_price = self.get_bnb_price(bnb_lp)
-        price_busd = price_bnb * bnb_price
+        if self.token.get('quote', 'bnb') == 'bnb':
+            quote_price = self.get_bnb_price(bnb_lp)
+        else:
+            quote_price = 1
+
+        price_busd = price_quote * quote_price
         return {
-            'bnb_amount': bnb_amount,
+            'quote_amount': quote_amount,
             'token_amount': token_amount,
-            'price_bnb': price_bnb,
+            'price_quote': price_quote,
             'price_busd': price_busd
         }
 

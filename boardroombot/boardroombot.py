@@ -27,7 +27,7 @@ class BoardroomBot(Bot):
     filter_lastblock = None
 
     def __init__(self, config, common, boardroom):
-        super().__init__(config, common, list_cogs('commands', __file__))
+        super().__init__(config, common, None, list_cogs('commands', __file__))
         self.config = config
         self.boardroom = boardroom
 
